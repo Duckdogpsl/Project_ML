@@ -24,10 +24,6 @@ MAX_WITHIN_DUP_RATIO = 0.05     # รูปซ้ำภายใน split เด
  
  
 def scan_split(split_dir: Path):
-    """
-    อ่านโครงสร้างแบบ split_dir/<class_name>/<image files>
-    คืนค่า: จำนวนรูปต่อคลาส, ไฟล์เสีย, ขนาดรูป, โหมดสี, และ hash -> [(class, path)]
-    """
     class_counts = {}
     corrupt_files = []
     sizes, modes = Counter(), Counter()
