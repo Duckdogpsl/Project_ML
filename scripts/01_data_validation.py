@@ -1,126 +1,214 @@
+import argparse
 import hashlib
-import json
+import io
 import os
-from collections import defaultdict
-
+from collections import Counter, defaultdict
+from pathlib import Path
+import sys
+ 
 import mlflow
 from PIL import Image
+ 
+IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
+SPLITS = ["train", "val", "test"]
+ 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_DATA_ROOT = PROJECT_ROOT / "dataset" / "tomato"
 
-from common import (
-    CLASSES,
-    DATA_DIR,
-    SPLITS,
-    list_classes,
-    list_images,
-    setup_mlflow,
-    short_label,
-)
-
-MIN_IMAGES_PER_CLASS = int(os.getenv("MIN_IMAGES_PER_CLASS", "5"))
-
-
-def validate_data():
-    setup_mlflow()
-
-    with mlflow.start_run(run_name="data_validation"):
+MIN_CLASSES = 3                 # จำนวน 3 คลาส
+MIN_IMAGES_PER_CLASS = 50       # ขอย่างน้อยกี่รูปต่อคลาสอยากได้มาเขียน
+MAX_IMBALANCE_RATIO = 5.0       # เอาไว้เขียนแก้ imbalance ของคลาสมากสุดกัยน้อยสุด
+MAX_CORRUPT_FILES = 0           # เอาไว้เขียนว่าจะเก็บไฟล์เสียไว้กี่รูป/ไฟล์
+MAX_LEAKAGE_RATIO = 0.60         # สัดส่วนรูปใน val/test ที่ซ้ำกับ split อื่น (0 = ห้ามซ้ำเลย)
+MAX_WITHIN_DUP_RATIO = 0.05     # รูปซ้ำภายใน split เดียวกัน เกินนี้แค่เตือน ไม่ทำให้ fail
+ 
+ 
+def scan_split(split_dir: Path):
+    """
+    อ่านโครงสร้างแบบ split_dir/<class_name>/<image files>
+    คืนค่า: จำนวนรูปต่อคลาส, ไฟล์เสีย, ขนาดรูป, โหมดสี, และ hash -> [(class, path)]
+    """
+    class_counts = {}
+    corrupt_files = []
+    sizes, modes = Counter(), Counter()
+    hashes = defaultdict(list)
+ 
+    for class_dir in sorted(p for p in split_dir.iterdir() if p.is_dir()):
+        n_ok = 0
+        for f in sorted(class_dir.rglob("*")):
+            if not f.is_file() or f.suffix.lower() not in IMAGE_EXTS:
+                continue
+            raw = f.read_bytes()
+            try:
+                with Image.open(io.BytesIO(raw)) as im:
+                    im.verify()                      # ตรวจว่าไฟล์ดูได้ไหม
+                with Image.open(io.BytesIO(raw)) as im:  # verify() ใช้ซ้ำไม่ได้
+                    sizes[f"{im.size[0]}x{im.size[1]}"] += 1
+                    modes[im.mode] += 1
+            except Exception:
+                corrupt_files.append(str(f))
+                continue
+            hashes[hashlib.md5(raw).hexdigest()].append((class_dir.name, str(f)))
+            n_ok += 1
+        class_counts[class_dir.name] = n_ok
+ 
+    return {
+        "class_counts": class_counts,
+        "corrupt_files": corrupt_files,
+        "sizes": sizes,
+        "modes": modes,
+        "hashes": hashes,
+    }
+ 
+ 
+def validate_data(data_root: str):
+    """
+    ตรวจ dataset รูปใบมะเขือเทศที่แบ่งเป็น train/val/test
+    แล้ว log ผลไปที่ MLflow
+    """
+    data_root = Path(data_root)
+    missing = [s for s in SPLITS if not (data_root / s).is_dir()]
+    if missing:
+        raise SystemExit(f"ไม่พบโฟลเดอร์ {missing} ใน {data_root}")
+ 
+    mlflow.set_experiment("Tomato Leaf Disease - Data Validation")
+ 
+    with mlflow.start_run():
+        print("Starting data validation run...")
         mlflow.set_tag("ml.step", "data_validation")
-        mlflow.log_param("data_dir", str(DATA_DIR))
-        print(f"Validating dataset at: {DATA_DIR}")
-
-        errors: list[str] = []
-        warnings: list[str] = []
-
-        # 1. split ครบไหม
-        missing = [s for s in SPLITS if not (DATA_DIR / s).is_dir()]
-        if missing:
-            raise SystemExit(f"Data validation failed — ไม่พบโฟลเดอร์ split: {missing}")
-
-        # 2. คลาสตรงกันทุก split ไหม
-        classes = {s: list_classes(DATA_DIR / s) for s in SPLITS}
-        reference = classes["train"]
-        if CLASSES is not None:
-            missing_cls = sorted(set(CLASSES) - set(reference))
-            if missing_cls:
-                errors.append(f"ไม่พบคลาสที่กำหนดใน CLASSES: {missing_cls}")
-            print(f"Using {len(reference)} classes: {[short_label(c) for c in reference]}")
+        mlflow.log_param("data_root", str(data_root))
+ 
+        failures, warnings = [], []
+        results = {}
+ 
+        # ตรวจทีละ split
+        for split in SPLITS:
+            r = scan_split(data_root / split)
+            results[split] = r
+            cc = r["class_counts"]
+            n_images = sum(cc.values())
+            n_unique = len(r["hashes"])
+            n_within_dup = n_images - n_unique
+            min_c, max_c = (min(cc.values()), max(cc.values())) if cc else (0, 0)
+            imbalance = max_c / min_c if min_c else float("inf")
+ 
+            print(f"\n[{split}] {n_images} images, {len(cc)} classes")
+            for name, n in cc.items():
+                print(f"  - {name}: {n}")
+            print(f"  corrupt: {len(r['corrupt_files'])}, "
+                  f"duplicates within split: {n_within_dup}, "
+                  f"imbalance: {imbalance:.2f}")
+ 
+            mlflow.log_metric(f"{split}_num_images", n_images)
+            mlflow.log_metric(f"{split}_num_unique_images", n_unique)
+            mlflow.log_metric(f"{split}_num_classes", len(cc))
+            mlflow.log_metric(f"{split}_num_corrupt", len(r["corrupt_files"]))
+            mlflow.log_metric(f"{split}_within_dup", n_within_dup)
+            mlflow.log_metric(f"{split}_imbalance_ratio", imbalance)
+            for name, n in cc.items():
+                mlflow.log_metric(f"{split}_count_{name}", n)
+ 
+            if len(cc) < MIN_CLASSES:
+                failures.append(f"{split}: มีแค่ {len(cc)} คลาส (ต้อง >= {MIN_CLASSES})")
+            small = [n for n, c in cc.items() if c < MIN_IMAGES_PER_CLASS]
+            if small:
+                failures.append(f"{split}: คลาสที่รูปน้อยกว่า {MIN_IMAGES_PER_CLASS}: {small}")
+            if imbalance > MAX_IMBALANCE_RATIO:
+                failures.append(f"{split}: imbalance {imbalance:.2f} เกิน {MAX_IMBALANCE_RATIO}")
+            if len(r["corrupt_files"]) > MAX_CORRUPT_FILES:
+                failures.append(f"{split}: มีไฟล์เสีย {len(r['corrupt_files'])} ไฟล์")
+            if n_images and n_within_dup / n_images > MAX_WITHIN_DUP_RATIO:
+                warnings.append(f"{split}: มีรูปซ้ำในตัวเอง {n_within_dup} ไฟล์ "
+                                f"({n_within_dup / n_images:.1%})")
+ 
+        # 2.1 ชื่อคลาสต้องตรงกันทุก split
+        class_sets = {s: set(results[s]["class_counts"]) for s in SPLITS}
+        class_names = sorted(set.union(*class_sets.values()))
+        mlflow.log_param("class_names", ",".join(class_names))
+        mlflow.log_param("num_classes", len(class_names))
         for s in SPLITS:
-            if classes[s] != reference:
-                errors.append(f"คลาสใน {s} ไม่ตรงกับ train: {sorted(set(classes[s]) ^ set(reference))}")
-
-        counts: dict[str, dict[str, int]] = {s: {} for s in SPLITS}
-        corrupt: list[str] = []
-        non_rgb = 0
-        sizes: dict[str, int] = defaultdict(int)
-        hashes: dict[str, set[str]] = {s: set() for s in SPLITS}
-
+            diff = set(class_names) - class_sets[s]
+            if diff:
+                failures.append(f"{s}: ขาดคลาส {sorted(diff)}")
+ 
+        # 2.2 data leakage: รูปเดียวกันอยู่หลาย split
+        hash_splits = defaultdict(set)
         for s in SPLITS:
-            for c in classes[s]:
-                files = list_images(DATA_DIR / s / c)
-                counts[s][c] = len(files)
-                # 3. จำนวนภาพพอไหม
-                if len(files) < MIN_IMAGES_PER_CLASS:
-                    errors.append(f"{s}/{c} มีภาพเพียง {len(files)} ภาพ (< {MIN_IMAGES_PER_CLASS})")
-                for f in files:
-                    data = f.read_bytes()
-                    hashes[s].add(hashlib.md5(data).hexdigest())
-                    # 4. ภาพเปิดได้และเป็นภาพสีไหม
-                    try:
-                        with Image.open(f) as im:
-                            im.verify()
-                        with Image.open(f) as im:
-                            sizes[f"{im.width}x{im.height}"] += 1
-                            if im.mode != "RGB":
-                                non_rgb += 1
-                    except Exception:
-                        corrupt.append(str(f.relative_to(DATA_DIR)))
-
-        if corrupt:
-            errors.append(f"พบภาพเสีย {len(corrupt)} ไฟล์ เช่น {corrupt[:5]}")
-
-        # 5. ภาพซ้ำข้าม split
-        leak_train_val = len(hashes["train"] & hashes["val"])
-        leak_train_test = len(hashes["train"] & hashes["test"])
-        if leak_train_val or leak_train_test:
-            warnings.append(
-                f"พบภาพซ้ำกันข้าม split: train∩val={leak_train_val}, train∩test={leak_train_test}"
-            )
-
-        # ---------- สรุปผล ----------
-        print(f"\n{'class':<42}" + "".join(f"{s:>8}" for s in SPLITS))
-        for c in reference:
-            print(f"{c:<42}" + "".join(f"{counts[s].get(c, 0):>8}" for s in SPLITS))
-        totals = {s: sum(counts[s].values()) for s in SPLITS}
-        print(f"{'TOTAL':<42}" + "".join(f"{totals[s]:>8}" for s in SPLITS))
-        print(f"\nImage sizes: {dict(sizes)}")
-
+            for h in results[s]["hashes"]:
+                hash_splits[h].add(s)
+ 
+        leakage_report = {}
+        print("\nCross-split leakage (unique images shared):")
+        for a, b in [("train", "val"), ("train", "test"), ("val", "test")]:
+            n = sum(1 for v in hash_splits.values() if a in v and b in v)
+            leakage_report[f"{a}-{b}"] = n
+            mlflow.log_metric(f"leak_{a}_{b}", n)
+            print(f"  {a} ∩ {b}: {n}")
+ 
+        for s in ["val", "test"]:
+            uniq = results[s]["hashes"]
+            leaked = sum(1 for h in uniq if len(hash_splits[h]) > 1)
+            ratio = leaked / len(uniq) if uniq else 0.0
+            mlflow.log_metric(f"{s}_leakage_ratio", ratio)
+            print(f"  {s}: {leaked}/{len(uniq)} unique images also in another split ({ratio:.1%})")
+            if ratio > MAX_LEAKAGE_RATIO:
+                failures.append(f"{s}: {ratio:.1%} ของรูปซ้ำกับ split อื่น (data leakage)")
+ 
+        # 2.3 รูปเดียวกันแต่ label ต่างกัน
+        hash_labels = defaultdict(set)
         for s in SPLITS:
-            mlflow.log_metric(f"num_images_{s}", totals[s])
-        train_counts = list(counts["train"].values()) or [0]
-        mlflow.log_metric("class_imbalance_ratio", max(train_counts) / max(min(train_counts), 1))
-        mlflow.log_metric("corrupt_images", len(corrupt))
-        mlflow.log_metric("non_rgb_images", non_rgb)
-        mlflow.log_metric("dup_train_val", leak_train_val)
-        mlflow.log_metric("dup_train_test", leak_train_test)
-        mlflow.log_param("num_classes", len(reference))
-        mlflow.log_dict(
-            {"counts": counts, "image_sizes": dict(sizes), "errors": errors, "warnings": warnings},
-            "validation_report.json",
-        )
-
-        status = "Failed" if errors else "Success"
-        mlflow.log_param("validation_status", status)
-
+            for h, items in results[s]["hashes"].items():
+                hash_labels[h].update(c for c, _ in items)
+        conflicts = sum(1 for v in hash_labels.values() if len(v) > 1)
+        mlflow.log_metric("label_conflicts", conflicts)
+        if conflicts:
+            failures.append(f"มีรูปเดียวกันแต่ label ต่างกัน {conflicts} รูป")
+ 
+        leaked_examples = [
+            {"splits": sorted(hash_splits[h]),
+             "files": [p for s in SPLITS for _, p in results[s]["hashes"].get(h, [])]}
+            for h, v in hash_splits.items() if len(v) > 1
+        ]
+        mlflow.log_dict({
+            s: {
+                "class_counts": results[s]["class_counts"],
+                "corrupt_files": results[s]["corrupt_files"],
+                "image_sizes": dict(results[s]["sizes"]),
+                "color_modes": dict(results[s]["modes"]),
+            } for s in SPLITS
+        } | {"leakage": leakage_report, "label_conflicts": conflicts},
+            "validation_report.json")
+        mlflow.log_dict({"leaked_images": leaked_examples}, "leaked_images.json")
+ 
+        # ---------- 4. สรุปผล ----------
+        validation_status = "Failed" if failures else "Success"
+        mlflow.log_param("validation_status", validation_status)
+        if failures:
+            mlflow.set_tag("validation_failures", " | ".join(failures)[:5000])
+        if warnings:
+            mlflow.set_tag("validation_warnings", " | ".join(warnings)[:5000])
+ 
+        print(f"\nValidation status: {validation_status}")
         for w in warnings:
-            print(f"WARNING: {w}")
-        for e in errors:
-            print(f"ERROR: {e}")
-        print(f"\nValidation status: {status}")
-        print(json.dumps({"classes": len(reference), **totals}))
-
-        # ให้ CI หยุดจริงเมื่อข้อมูลไม่ผ่าน
-        if errors:
+            print(f"  ! {w}")
+        for f in failures:
+            print(f"  ✗ {f}")
+ 
+        if validation_status == "Failed":
             raise SystemExit("Data validation failed — หยุด pipeline ไม่ให้ไปขั้นถัดไป")
-
-
+ 
+        print("Data validation run finished.")
+ 
+ 
 if __name__ == "__main__":
-    validate_data()
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+ 
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--data-root",
+        default=os.environ.get("DATA_ROOT", str(DEFAULT_DATA_ROOT)),
+        help="โฟลเดอร์ที่มี train/ val/ test/ (แต่ละอันมีโฟลเดอร์ย่อยแยกตามคลาส)",
+    )
+    args = parser.parse_args()
+    validate_data(args.data_root)
