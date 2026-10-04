@@ -90,8 +90,8 @@ Project_ML/
 ├── README.md
 ├── scripts/
 │   ├── common.py
-│   ├── 04_load_and_predict.py
-│   └── 04_model_serving.py
+│   ├── 05_load_and_predict.py
+│   └── 05_model_serving.py
 ├── tests/
 │   ├── test_serving_api.py
 │   └── load_test_serving.py
@@ -100,8 +100,8 @@ Project_ML/
 ```
 
 - `common.py` เก็บค่าตั้งต้นและฟังก์ชันสกัดฟีเจอร์ร่วม
-- `04_load_and_predict.py` ทดสอบโหลดโมเดลและทำนายผ่าน Command Line
-- `04_model_serving.py` เป็น FastAPI Application
+- `05_load_and_predict.py` ทดสอบโหลดโมเดลและทำนายผ่าน Command Line
+- `05_model_serving.py` เป็น FastAPI Application
 - `test_serving_api.py` ทดสอบ API ผ่าน HTTP
 - `load_test_serving.py` วัด Latency และ Throughput
 - `serving_performance.md` บันทึกผล Performance Test
