@@ -1,0 +1,11 @@
+groups:
+  - name: tomato-serving
+    rules:
+      - alert: TomatoServingDown
+        expr: up{job="tomato-serving"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Tomato serving metrics endpoint is unreachable
+          description: Check FastAPI on port 8000 and Docker host connectivity.
