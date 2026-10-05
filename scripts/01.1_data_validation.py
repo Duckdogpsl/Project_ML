@@ -2,13 +2,13 @@ import argparse
 import hashlib
 import io
 import os
+import sys
 from collections import Counter, defaultdict
 from pathlib import Path
-import sys
- 
+
 import mlflow
 from PIL import Image
- 
+
 IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
 SPLITS = ["train", "val", "test"]
  

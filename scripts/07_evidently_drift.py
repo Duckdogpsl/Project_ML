@@ -8,7 +8,6 @@ from sklearn.metrics import accuracy_score, f1_score
 
 from common import MIN_VAL_ACCURACY, ROOT
 
-
 MONITORING_DATA = ROOT / "monitoring_data"
 REPORTS = ROOT / "reports"
 
