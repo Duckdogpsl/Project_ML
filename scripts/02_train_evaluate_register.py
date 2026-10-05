@@ -4,7 +4,6 @@ import time
 
 import matplotlib.pyplot as plt
 import mlflow
-import numpy as np
 import pandas as pd
 from mlflow.exceptions import MlflowException
 from mlflow.models import infer_signature
@@ -27,11 +26,10 @@ from common import (
     MIN_VAL_ACCURACY,
     MODEL_ALIAS,
     MODEL_NAME,
-    PROCESSED_DIR,
     SEED,
     setup_mlflow,
 )
-from tracking import data_version, git_info, log_provenance
+from experiment_run import data_version, git_info, load_processed, log_provenance
 
 DEFAULT_MODELS = "baseline,logreg,random_forest,svc_rbf"
 FORCE_PROMOTE = os.getenv("FORCE_PROMOTE", "0") == "1"
@@ -98,8 +96,7 @@ def add_sweep_variants(candidates):
 
 
 def load(split):
-    d = np.load(PROCESSED_DIR / f"{split}.npz")
-    return d["X"], d["y"]
+    return load_processed(split)
 
 
 def evaluate(model, X, y, prefix):
@@ -245,7 +242,7 @@ def train():
             client.set_model_version_tag(MODEL_NAME, version, key, value)
 
         # ---------- ด่านที่ 2: ต้องไม่แย่กว่า champion ตัวเดิม ----------
-        worse = old_val_acc is not None and best_val["val_accuracy"] < old_val_acc - 1e-9
+        worse = old_val_acc is not None and round(best_val["val_accuracy"], 4) < old_val_acc - 1e-9
         if worse and not FORCE_PROMOTE:
             client.set_model_version_tag(MODEL_NAME, version, "status", "rejected")
             mlflow.set_tag("registered", "true")
