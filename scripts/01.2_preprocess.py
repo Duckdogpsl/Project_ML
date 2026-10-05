@@ -6,13 +6,13 @@ import mlflow
 import numpy as np
 import pandas as pd
 from PIL import Image
-from skimage.feature import hog
+
+from common import IMG_SIZE, extract_features
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = Path(os.getenv("DATA_DIR", PROJECT_ROOT / "dataset" / "tomato"))
 SPLITS = ["train", "val", "test"]
 IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
-IMG_SIZE = 64
 DROP_DUPLICATES = False
 # คลาสที่ใช้ (ชื่อสั้น) ค่าเริ่มต้น 3 คลาสตามโจทย์; ตั้ง CLASSES=all เพื่อใช้ทุกคลาส
 _classes_env = os.getenv("CLASSES", "Healthy,Mosaic_virus,Yellow_Leaf_Curl_Virus").strip()
@@ -22,21 +22,6 @@ CLASSES = None if _classes_env.lower() == "all" else {c.strip() for c in _classe
 def short_label(class_dir_name):
     """'Tomato__Tomato_Mosaic_virus' -> 'Mosaic_virus'"""
     return class_dir_name.split("Tomato_")[-1].lstrip("_")
-
-
-def extract_features(image):
-    """แปลงภาพ 1 ภาพเป็นตัวเลข 836 ค่า: ฮิสโตแกรมสี HSV (512) + HOG ลวดลายใบ (324)
-    ต้องใช้ฟังก์ชันเดียวกันนี้ตอนทำนายภาพใหม่ด้วย"""
-    img = image.convert("RGB").resize((IMG_SIZE, IMG_SIZE), Image.BILINEAR)
-
-    hsv = np.asarray(img.convert("HSV"), dtype=np.uint8).reshape(-1, 3)
-    hist, _ = np.histogramdd(hsv, bins=8, range=[(0, 256)] * 3)
-    hist = hist.ravel() / hsv.shape[0]
-
-    gray = np.asarray(img.convert("L"), dtype=np.float32) / 255.0
-    hog_feat = hog(gray, orientations=9, pixels_per_cell=(16, 16), cells_per_block=(2, 2))
-
-    return np.concatenate([hist, hog_feat]).astype(np.float32)
 
 
 def load_split(split, seen_hashes):
@@ -103,7 +88,7 @@ def preprocess_data():
         mlflow.log_param("img_size", IMG_SIZE)
         mlflow.log_param("drop_duplicates", DROP_DUPLICATES)
         mlflow.log_param("class_filter", "all" if CLASSES is None else sorted(CLASSES))
-        mlflow.log_param("features", "hsv_hist(512)+hog(324)")
+        mlflow.log_param("features", "hsv_hist(512)+hog(1764)")
         mlflow.log_param("num_features", X.shape[1])
         mlflow.log_param("classes", sorted(y.unique()))
 
