@@ -19,3 +19,5 @@ model-Experiment-Tracking
 monitoring_data/
 reports/
 main
+
+.pytest_cache/

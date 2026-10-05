@@ -1,0 +1,86 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      RUN: >-
+        docker run --rm -v "${{ github.workspace }}:/app"
+        -e DATA_DIR=dataset/sample -e GIT_COMMIT=${{ github.sha }}
+        tomato-serving:ci
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - run: pip install -r requirements-lock.txt
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Build image
+        run: docker build -t tomato-serving:ci .
+
+      - name: Validate data
+        run: $RUN python scripts/01_data_validation.py --data-root dataset/sample
+
+      - name: Preprocess
+        run: $RUN python scripts/1.2_preprocess.py
+
+      - name: Train, evaluate, register
+        run: $RUN python scripts/02_train_evaluate_register.py
+
+      - name: Start serving
+        run: docker run -d --name serving -p 8000:8000 -v "$PWD:/app" tomato-serving:ci
+
+      - name: Wait for healthy
+        run: |
+          for i in $(seq 1 30); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' serving)" = healthy ] && exit 0
+            sleep 5
+          done
+          docker logs serving
+          exit 1
+
+      - name: Integration tests
+        run: |
+          export TEST_IMAGE="$(find dataset/sample/test -name '*.jpg' | head -1)"
+          pytest
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker logs serving
+
+  publish:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/duckdogpsl/project_ml:latest
+            ghcr.io/duckdogpsl/project_ml:${{ github.sha }}
