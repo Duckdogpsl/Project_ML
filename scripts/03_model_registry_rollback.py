@@ -1,4 +1,4 @@
-"""ขั้นที่ 5: ดูทะเบียนโมเดลและย้อนกลับ (rollback) ไปเวอร์ชันก่อนหน้า
+"""ขั้นที่ 3: ดูทะเบียนโมเดลและย้อนกลับ (rollback) ไปเวอร์ชันก่อนหน้า
 
     python scripts/05_rollback.py            # แสดงทุกเวอร์ชัน และตัวที่เป็น @champion
     python scripts/05_rollback.py previous   # ย้าย @champion ไปเวอร์ชันก่อนหน้า
