@@ -3,11 +3,13 @@
 import io
 import logging
 import os
+import secrets
+import signal
 import time
 
 import mlflow
 import numpy as np
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Header, HTTPException, UploadFile
 from PIL import Image, UnidentifiedImageError
 from prometheus_client import Counter, Histogram, make_asgi_app
 
@@ -85,6 +87,15 @@ def health():
         "model_version": MODEL_VERSION,
         "process_id": os.getpid(),
     }
+
+@app.post("/internal/shutdown", include_in_schema=False)
+def managed_shutdown(background: BackgroundTasks, authorization: str = Header(default="")):
+    token = os.getenv("PIPELINE_CONTROL_TOKEN")
+    if not token or not secrets.compare_digest(authorization, "Bearer " + token):
+        raise HTTPException(status_code=403, detail="Managed controller authentication required")
+    background.add_task(os.kill, os.getpid(), signal.SIGTERM)
+    return {"status": "stopping"}
+
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):

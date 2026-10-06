@@ -183,3 +183,12 @@ def test_state_write_failure_stops_candidate_before_restoring(tmp_path, monkeypa
         adapter.deploy("2")
     assert adapter.stop.call_args_list[-1].args == (candidate,)
     assert adapter.start.call_args_list[-1].args == (8001, "1")
+
+
+def test_legacy_service_is_not_stopped_without_control_token(monkeypatch):
+    state = {"pid": 111, "port": 8001, "version": "1"}
+    monkeypatch.setattr(
+        pipeline.NativeDeployment, "health", lambda port: {"process_id": 111, "model_version": "1"}
+    )
+    with pytest.raises(RuntimeError, match="Legacy service"):
+        pipeline.NativeDeployment.stop(state)

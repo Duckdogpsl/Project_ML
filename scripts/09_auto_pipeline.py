@@ -8,7 +8,7 @@ import fcntl
 import importlib.util
 import json
 import os
-import signal
+import secrets
 import socket
 import subprocess
 import sys
@@ -110,7 +110,8 @@ class NativeDeployment:
             raise RuntimeError("Prediction smoke test failed")
 
     def start(self, port, version):
-        env = {**self.env, "MODEL_VERSION": str(version)}
+        token = secrets.token_urlsafe(32)
+        env = {**self.env, "MODEL_VERSION": str(version), "PIPELINE_CONTROL_TOKEN": token}
         env.pop("RUNNER_TRACKING_ID", None)
         log_path = self.state_dir / f"serving-{port}.log"
         with log_path.open("ab") as log:
@@ -140,7 +141,12 @@ class NativeDeployment:
                     raise RuntimeError(f"Serving exited; inspect {log_path}")
                 try:
                     self.verify(port, version, process.pid)
-                    return {"pid": process.pid, "port": port, "version": str(version)}
+                    return {
+                        "pid": process.pid,
+                        "port": port,
+                        "version": str(version),
+                        "control_token": token,
+                    }
                 except (urllib.error.URLError, TimeoutError, ConnectionError):
                     time.sleep(0.5)
             raise RuntimeError(f"Serving startup timed out; inspect {log_path}")
@@ -159,7 +165,20 @@ class NativeDeployment:
         body = NativeDeployment.health(state["port"])
         if body.get("process_id") != state["pid"] or body.get("model_version") != state["version"]:
             raise RuntimeError("Refusing to stop a service whose identity has changed")
-        os.kill(state["pid"], signal.SIGTERM)
+        token = state.get("control_token")
+        if not token:
+            raise RuntimeError(
+                "Legacy service has no authenticated controller; keep it and use a new port"
+            )
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{state['port']}/internal/shutdown",
+            data=b"",
+            headers={"Authorization": "Bearer " + token},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            if response.status != 200:
+                raise RuntimeError("Managed shutdown was not acknowledged")
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
             try:
