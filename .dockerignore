@@ -9,3 +9,7 @@ processed_data
 dataset
 .pytest_cache
 .ruff_cache
+
+reports
+
+monitoring_data

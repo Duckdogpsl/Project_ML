@@ -2,11 +2,14 @@
 
 import io
 import logging
+import os
+import secrets
+import signal
 import time
 
 import mlflow
 import numpy as np
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Header, HTTPException, UploadFile
 from PIL import Image, UnidentifiedImageError
 from prometheus_client import Counter, Histogram, make_asgi_app
 
@@ -23,7 +26,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("tomato-serving")
 
-MODEL_URI = f"models:/{MODEL_NAME}@{MODEL_ALIAS}"
+MODEL_VERSION = os.getenv("MODEL_VERSION")
+MODEL_URI = (f"models:/{MODEL_NAME}/{MODEL_VERSION}" if MODEL_VERSION
+             else f"models:/{MODEL_NAME}@{MODEL_ALIAS}")
 REQUEST_COUNT = Counter(
     "tomato_serving_requests_total",
     "จำนวนคำขอที่เข้ามายัง Model Serving",
@@ -79,7 +84,18 @@ def health():
         "model_name": MODEL_NAME,
         "model_alias": MODEL_ALIAS,
         "model_uri": MODEL_URI,
+        "model_version": MODEL_VERSION,
+        "process_id": os.getpid(),
     }
+
+@app.post("/internal/shutdown", include_in_schema=False)
+def managed_shutdown(background: BackgroundTasks, authorization: str = Header(default="")):
+    token = os.getenv("PIPELINE_CONTROL_TOKEN")
+    if not token or not secrets.compare_digest(authorization, "Bearer " + token):
+        raise HTTPException(status_code=403, detail="Managed controller authentication required")
+    background.add_task(os.kill, os.getpid(), signal.SIGTERM)
+    return {"status": "stopping"}
+
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):

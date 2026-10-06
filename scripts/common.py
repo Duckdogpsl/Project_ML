@@ -27,7 +27,7 @@ IMG_SIZE = 64          # ย่อภาพเป็น 64x64 ก่อนสก
 HIST_BINS = 8          # ฮิสโตแกรมสี HSV แบบ 8x8x8 = 512 ค่า
 
 # ---------- ผลลัพธ์ / MLflow ----------
-PROCESSED_DIR = ROOT / "processed_data"
+PROCESSED_DIR = ROOT / os.getenv("PROCESSED_DIR", "processed_data")
 MLFLOW_URI = os.getenv("MLFLOW_TRACKING_URI", f"sqlite:///{(ROOT / 'mlflow.db').as_posix()}")
 EXPERIMENT = "Tomato Leaf Disease"
 MODEL_NAME = "tomato-leaf-classifier"
@@ -40,7 +40,7 @@ def setup_mlflow():
     mlflow.set_tracking_uri(MLFLOW_URI)
     # เก็บ artifact (โมเดล, กราฟ) ไว้ที่ <project>/mlruns เสมอ ไม่ว่าจะรันจากโฟลเดอร์ไหน
     if mlflow.get_experiment_by_name(EXPERIMENT) is None:
-        mlflow.create_experiment(EXPERIMENT, artifact_location=(ROOT / "mlruns").as_uri())
+        mlflow.create_experiment(EXPERIMENT, artifact_location=(ROOT / os.getenv("MLFLOW_ARTIFACT_DIR", "mlruns")).as_uri())
     mlflow.set_experiment(EXPERIMENT)
 
 

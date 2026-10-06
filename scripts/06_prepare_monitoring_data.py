@@ -1,4 +1,5 @@
 import argparse
+import os
 
 import mlflow
 import numpy as np
@@ -17,7 +18,7 @@ from common import (
     short_label,
 )
 
-MONITORING_DATA = ROOT / "monitoring_data"
+MONITORING_DATA = ROOT / os.getenv("MONITORING_DATA_DIR", "monitoring_data")
 
 
 def image_summary(image, feature):
@@ -49,7 +50,7 @@ def image_summary(image, feature):
     }
 
 
-def collect_split(model, split, simulate_drift=False):
+def collect_split(model, split, simulate_drift=False, brightness_factor=0.55, blur_radius=1.2):
 
     split_dir = DATA_DIR / split
 
@@ -78,10 +79,10 @@ def collect_split(model, split, simulate_drift=False):
                 if simulate_drift:
                     image = ImageEnhance.Brightness(
                         image
-                    ).enhance(0.55)
+                    ).enhance(brightness_factor)
 
                     image = image.filter(
-                        ImageFilter.GaussianBlur(radius=1.2)
+                        ImageFilter.GaussianBlur(radius=blur_radius)
                     )
 
                 feature = extract_features(image)
@@ -129,7 +130,11 @@ def main():
         help="จำลอง current data ให้มืดและเบลอเพื่อทดสอบ drift detector",
     )
 
+    parser.add_argument("--brightness-factor", type=float, default=0.55)
+    parser.add_argument("--blur-radius", type=float, default=1.2)
     args = parser.parse_args()
+    if not 0 < args.brightness_factor <= 1 or args.blur_radius < 0:
+        parser.error("brightness must be in (0, 1] and blur radius nonnegative")
 
     MONITORING_DATA.mkdir(
         parents=True,
@@ -140,7 +145,8 @@ def main():
     setup_mlflow()
 
     model_uri = (
-        f"models:/{MODEL_NAME}@{MODEL_ALIAS}"
+        f"models:/{MODEL_NAME}/{os.environ['MODEL_VERSION']}"
+        if os.getenv("MODEL_VERSION") else f"models:/{MODEL_NAME}@{MODEL_ALIAS}"
     )
 
     print("Loading model:", model_uri)
@@ -163,6 +169,8 @@ def main():
         model,
         "test",
         simulate_drift=args.simulate_drift,
+        brightness_factor=args.brightness_factor,
+        blur_radius=args.blur_radius,
     )
 
     reference_path = (

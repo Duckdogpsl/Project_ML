@@ -1,4 +1,5 @@
 import inspect
+import json
 import os
 import time
 
@@ -26,6 +27,7 @@ from common import (
     MIN_VAL_ACCURACY,
     MODEL_ALIAS,
     MODEL_NAME,
+    ROOT,
     SEED,
     setup_mlflow,
 )
@@ -46,9 +48,7 @@ def build_candidates():
             {"model": "LogisticRegression", "C": 0.05},
         ),
         "random_forest": (
-            make_pipeline(
-                RandomForestClassifier(n_estimators=200, n_jobs=-1, random_state=SEED)
-            ),
+            make_pipeline(RandomForestClassifier(n_estimators=200, n_jobs=-1, random_state=SEED)),
             {"model": "RandomForest", "n_estimators": 200},
         ),
         "svc_rbf": (
@@ -80,7 +80,9 @@ def add_sweep_variants(candidates):
     for n, depth in ((100, 10), (300, None), (200, 5)):
         candidates[f"rf_n{n}_depth{depth}"] = (
             make_pipeline(
-                RandomForestClassifier(n_estimators=n, max_depth=depth, n_jobs=-1, random_state=SEED)
+                RandomForestClassifier(
+                    n_estimators=n, max_depth=depth, n_jobs=-1, random_state=SEED
+                )
             ),
             {"model": "RandomForest", "n_estimators": n, "max_depth": depth},
         )
@@ -153,9 +155,11 @@ def train():
                 metrics["train_seconds"] = round(time.time() - t0, 1)
                 mlflow.log_metrics(metrics)
                 results[name] = (model, metrics, child.info.run_id)
-                print(f"{name:>20}: train={metrics['train_accuracy']:.4f} "
-                      f"val={metrics['val_accuracy']:.4f} f1={metrics['val_f1_macro']:.4f} "
-                      f"({metrics['train_seconds']}s)")
+                print(
+                    f"{name:>20}: train={metrics['train_accuracy']:.4f} "
+                    f"val={metrics['val_accuracy']:.4f} f1={metrics['val_f1_macro']:.4f} "
+                    f"({metrics['train_seconds']}s)"
+                )
 
         # ---------- ตารางเปรียบเทียบการทดลอง ----------
         table = pd.DataFrame(
@@ -208,9 +212,13 @@ def train():
         # ---------- ด่านที่ 1: เกณฑ์ขั้นต่ำ ----------
         if best_val["val_accuracy"] < MIN_VAL_ACCURACY:
             mlflow.set_tag("registered", "false")
-            raise SystemExit(
-                f"val_accuracy {best_val['val_accuracy']:.4f} < {MIN_VAL_ACCURACY} — ไม่ register โมเดล"
-            )
+            return {
+                "approved": False,
+                "version": None,
+                "reason": "minimum_accuracy",
+                "val_accuracy": float(best_val["val_accuracy"]),
+                "minimum_accuracy": MIN_VAL_ACCURACY,
+            }
 
         # ---------- Model Registry ----------
         # MLflow รุ่นใหม่บันทึกโมเดลด้วย skops ซึ่งต้องระบุชนิด object ที่ไว้ใจ (เช่น Tree ของ RandomForest)
@@ -247,9 +255,26 @@ def train():
             client.set_model_version_tag(MODEL_NAME, version, "status", "rejected")
             mlflow.set_tag("registered", "true")
             mlflow.set_tag("promoted", "false")
-            print(f"Registered {MODEL_NAME} v{version} but NOT promoted: "
-                  f"val_acc {best_val['val_accuracy']:.4f} < champion v{old_version} ({old_val_acc:.4f})")
-            return
+            print(
+                f"Registered {MODEL_NAME} v{version} but NOT promoted: "
+                f"val_acc {best_val['val_accuracy']:.4f} < champion v{old_version} ({old_val_acc:.4f})"
+            )
+            return {
+                "approved": False,
+                "version": str(version),
+                "reason": "champion_regression",
+                "val_accuracy": float(best_val["val_accuracy"]),
+            }
+
+        if os.getenv("AUTO_PROMOTE", "1") == "0":
+            client.set_model_version_tag(MODEL_NAME, version, "status", "candidate")
+            mlflow.set_tag("promoted", "false")
+            return {
+                "approved": True,
+                "version": str(version),
+                "reason": "quality_gate_passed",
+                "val_accuracy": float(best_val["val_accuracy"]),
+            }
 
         client.set_registered_model_alias(MODEL_NAME, MODEL_ALIAS, version)
         client.set_model_version_tag(MODEL_NAME, version, "status", "champion")
@@ -257,9 +282,23 @@ def train():
             client.set_model_version_tag(MODEL_NAME, old_version, "status", "archived")
         mlflow.set_tag("registered", "true")
         mlflow.set_tag("promoted", "true")
-        print(f"Registered {MODEL_NAME} v{version} as @{MODEL_ALIAS} "
-              f"(test_acc={test_metrics['test_accuracy']:.4f}, run={parent.info.run_id})")
+        print(
+            f"Registered {MODEL_NAME} v{version} as @{MODEL_ALIAS} "
+            f"(test_acc={test_metrics['test_accuracy']:.4f}, run={parent.info.run_id})"
+        )
+
+        return {
+            "approved": True,
+            "version": str(version),
+            "reason": "promoted",
+            "val_accuracy": float(best_val["val_accuracy"]),
+        }
 
 
 if __name__ == "__main__":
-    train()
+    result = train()
+    if os.getenv("TRAIN_RESULT_PATH"):
+        path = ROOT / os.environ["TRAIN_RESULT_PATH"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    raise SystemExit(0 if result["approved"] else 2)

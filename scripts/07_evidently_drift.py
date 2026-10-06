@@ -1,4 +1,5 @@
 import json
+import os
 
 import pandas as pd
 from evidently import DataDefinition, Dataset, Report
@@ -8,9 +9,8 @@ from sklearn.metrics import accuracy_score, f1_score
 
 from common import MIN_VAL_ACCURACY, ROOT
 
-
-MONITORING_DATA = ROOT / "monitoring_data"
-REPORTS = ROOT / "reports"
+MONITORING_DATA = ROOT / os.getenv("MONITORING_DATA_DIR", "monitoring_data")
+REPORTS = ROOT / os.getenv("REPORTS_DIR", "reports")
 
 P_VALUE_THRESHOLD = 0.05
 DRIFT_SHARE_THRESHOLD = 0.20
