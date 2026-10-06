@@ -7,7 +7,7 @@ SOURCE_DIR = PROJECT_ROOT / "dataset" / "tomato"
 TARGET_DIR = PROJECT_ROOT / "dataset" / "sample"
 
 SPLITS = ["train", "val", "test"]
-NUM_SAMPLES = 60
+NUM_SAMPLES = {"train": 1500, "val": 300, "test": 300}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
 
 
@@ -30,7 +30,7 @@ def make_sample():
             if not images:
                 continue
 
-            sampled_images = random.sample(images, min(NUM_SAMPLES, len(images)))
+            sampled_images = random.sample(images, min(NUM_SAMPLES[split], len(images)))
 
             target_class_dir = TARGET_DIR / split / class_dir.name
             target_class_dir.mkdir(parents=True, exist_ok=True)

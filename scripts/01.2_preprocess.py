@@ -10,11 +10,11 @@ from PIL import Image
 from common import PROCESSED_DIR, extract_features, list_images
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = Path(os.getenv("DATA_DIR", PROJECT_ROOT / "dataset" / "tomato"))
+DATA_DIR = Path(os.getenv("DATA_DIR", PROJECT_ROOT / "dataset" / "sample"))
 SPLITS = ["train", "val", "test"]
 IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
 IMG_SIZE = 64
-DROP_DUPLICATES = False
+DROP_DUPLICATES = True
 # คลาสที่ใช้ (ชื่อสั้น) ค่าเริ่มต้น 3 คลาสตามโจทย์; ตั้ง CLASSES=all เพื่อใช้ทุกคลาส
 _classes_env = os.getenv("CLASSES", "Healthy,Mosaic_virus,Yellow_Leaf_Curl_Virus").strip()
 CLASSES = (

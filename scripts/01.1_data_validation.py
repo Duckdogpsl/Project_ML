@@ -13,7 +13,7 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
 SPLITS = ["train", "val", "test"]
  
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_DATA_ROOT = PROJECT_ROOT / "dataset" / "tomato"
+DEFAULT_DATA_ROOT = PROJECT_ROOT / "dataset" / "sample"
 
 MIN_CLASSES = 3                 # จำนวน 3 คลาส
 MIN_IMAGES_PER_CLASS = 50       # ขอย่างน้อยกี่รูปต่อคลาสอยากได้มาเขียน
