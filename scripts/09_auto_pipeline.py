@@ -24,6 +24,8 @@ def write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(value, indent=2, allow_nan=False), encoding="utf-8")
+    if path.name == "serving.json":
+        temporary.chmod(0o600)
     temporary.replace(path)
 
 
