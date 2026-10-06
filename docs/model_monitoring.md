@@ -11,7 +11,7 @@ docker compose -f docker-compose.monitoring.yml up -d
 docker compose -f docker-compose.monitoring.yml ps
 ```
 
-Prometheus scrapes `host.docker.internal:8000/metrics/` every 5 seconds.
+Prometheus scrapes `host.docker.internal:8002/metrics/` every 5 seconds.
 Open http://localhost:9090/targets and confirm `tomato-serving` is UP.
 Query `up{job="tomato-serving"}`: the value should be 1.
 

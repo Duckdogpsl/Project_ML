@@ -57,14 +57,16 @@ operational errors stop immediately instead of blindly retrying training.
 
 The managed API uses http://127.0.0.1:8001. It does not stop the team's existing
 API on 8000. To use 8000, first stop that API deliberately and pass `--port 8000`.
-Prometheus currently scrapes 8000; update its target to 8001 if this managed API
-becomes the chosen serving deployment, then restart Prometheus. Deployment has
+The completed classroom demo uses port 8002 with an isolated registry and local
+controller; Prometheus now scrapes 8002. The CLI default remains 8001. Deployment has
 a brief restart window; this is not a zero-downtime production deployment.
 
 An immutable candidate version is smoke-tested on a temporary port before the
 managed API is replaced. Startup failure restores the previously managed
 version. Alias-promotion failure also restores the registry alias. PID identity
-is checked through `/health` before the controller signals an existing process.
+is checked through `/health`. Shutdown uses an authenticated loopback-only control
+request; the API terminates itself. Its token is stored only in ignored owner-readable
+`serving.json` and is never included in uploaded evidence.
 An unmanaged process on the chosen port is never stopped.
 
 Runtime state and evidence are under `reports/auto_pipeline/`, ignored by Git.
