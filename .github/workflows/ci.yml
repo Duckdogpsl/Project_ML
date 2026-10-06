@@ -54,13 +54,14 @@ jobs:
       - name: Preprocess
         run: >
           docker run --rm -v ${{ github.workspace }}:/app
-          -e DATA_DIR=dataset/sample "$IMAGE"
+          -e DATA_DIR=dataset/sample -e CLASSES=all -e GIT_PYTHON_REFRESH=quiet "$IMAGE"
           python scripts/01.2_preprocess.py
 
       - name: Train, evaluate, register
         run: >
           docker run --rm -v ${{ github.workspace }}:/app
-          -e DATA_DIR=dataset/sample -e GIT_COMMIT=${{ github.sha }} "$IMAGE"
+          -e DATA_DIR=dataset/sample -e CLASSES=all -e GIT_PYTHON_REFRESH=quiet
+          -e GIT_COMMIT=${{ github.sha }} "$IMAGE"
           python scripts/02_train_evaluate_register.py
 
       - name: Start serving

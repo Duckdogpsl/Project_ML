@@ -33,11 +33,18 @@ def load_split(split, seen_hashes):
     """อ่านภาพทุกคลาสใน split หนึ่ง คืนค่าเป็น DataFrame (ฟีเจอร์ + target)
     พร้อมนับภาพที่ซ้ำกับภาพที่เคยอ่านแล้ว (dataset นี้มีภาพเดียวกันอยู่หลาย split)"""
     rows, labels, duplicates = [], [], 0
-    class_dirs = sorted(
-        p
-        for p in (DATA_DIR / split).iterdir()
-        if p.is_dir() and (CLASSES is None or short_label(p.name) in CLASSES)
-    )
+    split_dir = DATA_DIR / split
+    if not split_dir.is_dir():
+        raise SystemExit(f"ไม่พบโฟลเดอร์ {split_dir}")
+    all_dirs = sorted(p for p in split_dir.iterdir() if p.is_dir())
+    class_dirs = [p for p in all_dirs if CLASSES is None or short_label(p.name) in CLASSES]
+    if not class_dirs:
+        found = sorted(short_label(p.name) for p in all_dirs)
+        raise SystemExit(
+            f"[{split}] ไม่มีคลาสที่ตรงกับ CLASSES={sorted(CLASSES)}\n"
+            f"คลาสที่พบใน {split_dir}: {found}\n"
+            "ตั้ง CLASSES=all หรือระบุชื่อคลาสให้ตรง (ตัวพิมพ์เล็ก/ใหญ่มีผล)"
+        )
     for class_dir in class_dirs:
         label = short_label(class_dir.name)
         for f in list_images(class_dir):
@@ -53,6 +60,11 @@ def load_split(split, seen_hashes):
                 rows.append(extract_features(im))
             labels.append(label)
 
+    if not rows:
+        raise SystemExit(
+            f"[{split}] อ่านภาพได้ 0 ภาพ จาก {len(class_dirs)} คลาส "
+            f"(ภาพซ้ำที่ถูกตัด {duplicates}) ตรวจนามสกุลไฟล์หรือภาพซ้ำข้าม split"
+        )
     X = pd.DataFrame(np.stack(rows), columns=[f"f{i}" for i in range(len(rows[0]))])
     y = pd.Series(labels, name="target")
     return X, y, duplicates
