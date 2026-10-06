@@ -1,4 +1,4 @@
-"""ขั้นที่ 4: โหลดโมเดล @champion จาก MLflow Model Registry แล้วทำนายภาพใบมะเขือเทศ
+"""ขั้นที่ 5: โหลดโมเดล @champion จาก MLflow Model Registry แล้วทำนายภาพใบมะเขือเทศ
 
 ใช้งาน
     python scripts/05_load_and_predict.py                     # สุ่มภาพจาก test มาทดสอบ
