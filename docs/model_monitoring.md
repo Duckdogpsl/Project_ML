@@ -58,6 +58,10 @@ local monitoring CSVs, so run it only when you intend to regenerate that data.
 The HTML report and summary JSON are local files under `reports/`.
 The decision script recommends RETRAIN for degraded performance, WATCH for
 drift with acceptable performance, or OK. It does not launch retraining.
+For automatic retraining and gated local deployment, see `automatic_pipeline.md`
+and run `python scripts/09_auto_pipeline.py --mode monitor` after bootstrapping
+its managed API. The original decision script remains advisory when used alone.
+
 Batch drift/performance results are not exported to Prometheus by these scripts;
 the Grafana dashboard displays serving metrics only.
 

@@ -2,6 +2,7 @@
 
 import io
 import logging
+import os
 import time
 
 import mlflow
@@ -23,7 +24,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("tomato-serving")
 
-MODEL_URI = f"models:/{MODEL_NAME}@{MODEL_ALIAS}"
+MODEL_VERSION = os.getenv("MODEL_VERSION")
+MODEL_URI = (f"models:/{MODEL_NAME}/{MODEL_VERSION}" if MODEL_VERSION
+             else f"models:/{MODEL_NAME}@{MODEL_ALIAS}")
 REQUEST_COUNT = Counter(
     "tomato_serving_requests_total",
     "จำนวนคำขอที่เข้ามายัง Model Serving",
@@ -79,6 +82,8 @@ def health():
         "model_name": MODEL_NAME,
         "model_alias": MODEL_ALIAS,
         "model_uri": MODEL_URI,
+        "model_version": MODEL_VERSION,
+        "process_id": os.getpid(),
     }
 
 @app.post("/predict")
