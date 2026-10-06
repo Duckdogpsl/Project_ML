@@ -126,3 +126,29 @@ as tests; real training demos use actual leaf images and isolated MLflow state.
 Training on the same data is not a guarantee that drift will be repaired. New
 representative labelled training data may be needed. The pipeline never promotes
 a failing candidate just to make the demonstration appear successful.
+
+## Enabled local controller
+
+`10_pipeline_watch.py` detects source and image-content changes (SHA-256).
+It runs the local CI gate before training on a change. When unchanged, it invokes
+monitoring every 900 seconds. Run in the same Python environment, registry,
+state directory and dataset as the managed API:
+
+```bash
+python scripts/10_pipeline_watch.py --data-dir dataset/tomato --state-dir reports/auto_pipeline
+```
+
+The controller must remain running and the Mac must be awake. It resumes normal
+monitoring after a bounded retrain failure; current-data gating and the one-hour
+cooldown still apply. It does not pull or merge peer code into the working tree.
+`watch-events.jsonl` records whether each run was triggered by code/data change
+or by the timer. `--run-once` supports repeatable integration tests.
+
+The GitHub CI workflow now runs an additional real end-to-end test: synthetic
+images -> validation -> shared preprocessing -> baseline rejection -> automatic
+Random Forest retrain -> gate -> ephemeral API deployment -> serving tests. It
+uploads only event/quality-gate evidence. Synthetic-image scores are not leaf
+classification accuracy; the separate local demo uses real leaf images.
+GitHub-hosted deployment is ephemeral; the local controller manages the
+persistent API on the Mac. Shared self-hosted scheduling remains a draft because
+this GitHub account has write access but no repository administration access.
