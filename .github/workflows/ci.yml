@@ -33,6 +33,18 @@ jobs:
       - name: Build image
         run: docker build -t "$IMAGE" .
 
+      # dataset/sample ไม่ได้อยู่ใน git (สร้างจาก 00_make_sample บนเครื่อง)
+      # ใน CI จึงสร้างชุดข้อมูลสังเคราะห์โครงสร้างเดียวกัน (train/val/test) แทน
+      - name: Generate CI sample data
+        run: |
+          if [ -d dataset/sample/train ] && [ -d dataset/sample/val ] && [ -d dataset/sample/test ]; then
+            echo "dataset/sample already exists, skip"
+          else
+            docker run --rm -v ${{ github.workspace }}:/app "$IMAGE" \
+              python scripts/11_make_ci_fixture.py --output dataset/sample
+          fi
+          ls dataset/sample
+
       - name: Validate data
         run: >
           docker run --rm -v ${{ github.workspace }}:/app
@@ -76,7 +88,7 @@ jobs:
         env:
           SERVING_URL: http://127.0.0.1:8000
         run: |
-          export TEST_IMAGE="$(find dataset/sample/test -name '*.jpg' | head -1)"
+          export TEST_IMAGE="$(find dataset/sample/test -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) | head -1)"
           test -n "$TEST_IMAGE" || { echo "no test image found in dataset/sample/test"; exit 1; }
           pytest tests/test_serving_api.py
 
