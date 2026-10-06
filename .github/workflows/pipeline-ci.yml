@@ -14,6 +14,8 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
+          # ไม่มี requirements.txt ที่ root -> ต้องบอกไฟล์ที่ใช้ทำ cache key ไม่งั้น setup-python ล้ม
+          cache-dependency-path: requirements-monitoring.txt
       - run: python -m pip install -r requirements-monitoring.txt
       - name: Check pipeline code
         run: >-
@@ -33,11 +35,31 @@ jobs:
         run: >-
           python scripts/09_auto_pipeline.py --data-dir reports/ci_input
           --state-dir reports/ci_runtime --models baseline --retry-models random_forest
+      - name: Wait for deployed API
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8001/ >/dev/null 2>&1; then exit 0; fi
+            echo "waiting for API on :8001... ($i/30)"
+            sleep 2
+          done
+          echo "API on :8001 is not responding"
+          exit 1
       - name: Test the deployed API
         env:
           SERVING_URL: http://127.0.0.1:8001
           TEST_IMAGE: reports/ci_input/val/Tomato___healthy/image-000.png
-        run: python -m pytest tests/test_serving_api.py -q
+        run: |
+          test -f "$TEST_IMAGE" || { echo "missing $TEST_IMAGE"; ls -R reports/ci_input | head -50; exit 1; }
+          python -m pytest tests/test_serving_api.py -q
+      - name: Show diagnostics on failure
+        if: failure()
+        run: |
+          echo "== listening ports =="
+          ss -ltnp || true
+          echo "== runtime files =="
+          ls -R reports/ci_runtime 2>/dev/null | head -100 || echo "no reports/ci_runtime"
+          echo "== log files =="
+          find reports/ci_runtime -name '*.log' -exec sh -c 'echo "--- $1"; tail -n 100 "$1"' _ {} \; 2>/dev/null || true
       - name: Publish CI execution evidence (no input images or model artifacts)
         if: always()
         uses: actions/upload-artifact@v4
@@ -47,4 +69,5 @@ jobs:
             reports/ci_runtime/run-*/events.json
             reports/ci_runtime/run-*/result.json
             reports/ci_runtime/run-*/train-*.json
+            reports/ci_runtime/**/*.log
           if-no-files-found: ignore

@@ -31,47 +31,70 @@ jobs:
         run: ruff check .
 
       - name: Build image
-        run: docker build -t $IMAGE .
+        run: docker build -t "$IMAGE" .
 
       - name: Validate data
         run: >
           docker run --rm -v ${{ github.workspace }}:/app
-          -e DATA_DIR=dataset/sample $IMAGE
+          -e DATA_DIR=dataset/sample "$IMAGE"
           python scripts/01.1_data_validation.py --data-root dataset/sample
 
       - name: Preprocess
         run: >
           docker run --rm -v ${{ github.workspace }}:/app
-          -e DATA_DIR=dataset/sample $IMAGE
+          -e DATA_DIR=dataset/sample "$IMAGE"
           python scripts/01.2_preprocess.py
 
       - name: Train, evaluate, register
         run: >
           docker run --rm -v ${{ github.workspace }}:/app
-          -e DATA_DIR=dataset/sample -e GIT_COMMIT=${{ github.sha }} $IMAGE
+          -e DATA_DIR=dataset/sample -e GIT_COMMIT=${{ github.sha }} "$IMAGE"
           python scripts/02_train_evaluate_register.py
 
       - name: Start serving
-        run: docker run -d --name serving -p 8000:8000 -v ${{ github.workspace }}:/app $IMAGE
+        run: docker run -d --name serving -p 8000:8000 -v ${{ github.workspace }}:/app "$IMAGE"
 
       - name: Wait until healthy
         run: |
           for i in $(seq 1 30); do
-            status=$(docker inspect -f '{{.State.Health.Status}}' serving)
-            [ "$status" = healthy ] && exit 0
+            state=$(docker inspect -f '{{.State.Status}}' serving)
+            if [ "$state" = exited ] || [ "$state" = dead ]; then
+              echo "serving container stopped (state: $state)"
+              exit 1
+            fi
+            # ใช้ healthcheck ของ image ถ้ามี ไม่มีก็เช็ก HTTP ตรง ๆ
+            health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' serving)
+            if [ "$health" = healthy ]; then exit 0; fi
+            if [ -z "$health" ] && curl -fsS http://127.0.0.1:8000/ >/dev/null 2>&1; then exit 0; fi
+            echo "waiting for serving... ($i/30, state=$state, health=${health:-none})"
             sleep 5
           done
-          docker logs serving
+          echo "serving did not become healthy in time"
           exit 1
 
       - name: Integration tests
+        env:
+          SERVING_URL: http://127.0.0.1:8000
         run: |
           export TEST_IMAGE="$(find dataset/sample/test -name '*.jpg' | head -1)"
+          test -n "$TEST_IMAGE" || { echo "no test image found in dataset/sample/test"; exit 1; }
           pytest tests/test_serving_api.py
 
       - name: Show serving logs on failure
         if: failure()
-        run: docker logs serving
+        run: |
+          echo "== containers =="
+          docker ps -a
+          if docker ps -a --format '{{.Names}}' | grep -qx serving; then
+            echo "== docker logs serving =="
+            docker logs serving
+          else
+            echo "container 'serving' was never created - the failure is in an earlier step (see the first red step above)"
+          fi
+
+      - name: Stop serving
+        if: always()
+        run: docker rm -f serving >/dev/null 2>&1 || true
 
   publish:
     needs: test
