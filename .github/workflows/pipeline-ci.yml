@@ -1,0 +1,50 @@
+name: Pipeline CI
+on:
+  pull_request:
+  push:
+    branches: [main, 'feature/**']
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: python -m pip install -r requirements-monitoring.txt
+      - name: Check pipeline code
+        run: >-
+          ruff check scripts/09_auto_pipeline.py scripts/01.2_preprocess.py
+          scripts/02_train_evaluate_register.py scripts/05_model_serving.py
+          scripts/06_prepare_monitoring_data.py scripts/07_evidently_drift.py
+          scripts/common.py scripts/10_pipeline_watch.py scripts/11_make_ci_fixture.py
+          tests/test_auto_pipeline.py tests/test_pipeline_watch.py
+      - name: Test retries, rollback, and feature compatibility
+        run: python -m pytest tests/test_auto_pipeline.py tests/test_pipeline_watch.py -q
+      - name: Generate synthetic CI inputs (not leaf accuracy evidence)
+        run: python scripts/11_make_ci_fixture.py --output reports/ci_input
+      - name: Real end-to-end retry, quality gate, and ephemeral deployment
+        env:
+          MLFLOW_TRACKING_URI: sqlite:///${{ github.workspace }}/reports/ci_registry.db
+          MLFLOW_ARTIFACT_DIR: reports/ci_artifacts
+        run: >-
+          python scripts/09_auto_pipeline.py --data-dir reports/ci_input
+          --state-dir reports/ci_runtime --models baseline --retry-models random_forest
+      - name: Test the deployed API
+        env:
+          SERVING_URL: http://127.0.0.1:8001
+          TEST_IMAGE: reports/ci_input/val/Tomato___healthy/image-000.png
+        run: python -m pytest tests/test_serving_api.py -q
+      - name: Publish CI execution evidence (no input images or model artifacts)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-ci-evidence-${{ github.run_id }}
+          path: |
+            reports/ci_runtime/run-*/events.json
+            reports/ci_runtime/run-*/result.json
+            reports/ci_runtime/run-*/train-*.json
+          if-no-files-found: ignore

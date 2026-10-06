@@ -11,7 +11,7 @@ docker compose -f docker-compose.monitoring.yml up -d
 docker compose -f docker-compose.monitoring.yml ps
 ```
 
-Prometheus scrapes `host.docker.internal:8000/metrics/` every 5 seconds.
+Prometheus scrapes `host.docker.internal:8002/metrics/` every 5 seconds.
 Open http://localhost:9090/targets and confirm `tomato-serving` is UP.
 Query `up{job="tomato-serving"}`: the value should be 1.
 
@@ -58,6 +58,10 @@ local monitoring CSVs, so run it only when you intend to regenerate that data.
 The HTML report and summary JSON are local files under `reports/`.
 The decision script recommends RETRAIN for degraded performance, WATCH for
 drift with acceptable performance, or OK. It does not launch retraining.
+For automatic retraining and gated local deployment, see `automatic_pipeline.md`
+and run `python scripts/09_auto_pipeline.py --mode monitor` after bootstrapping
+its managed API. The original decision script remains advisory when used alone.
+
 Batch drift/performance results are not exported to Prometheus by these scripts;
 the Grafana dashboard displays serving metrics only.
 

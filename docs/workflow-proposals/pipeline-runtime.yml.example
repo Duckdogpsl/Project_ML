@@ -1,0 +1,48 @@
+# REVIEW DRAFT ONLY: this file does not activate GitHub Actions.
+# Before installation, register a trusted self-hosted runner labelled project-ml,
+# provision its dataset/Python/MLflow state, and obtain the team's approval.
+name: Automated ML Pipeline
+on:
+  push:
+    branches: [main]
+    paths: ['scripts/**', 'requirements*.txt', '.github/workflows/pipeline-runtime.yml']
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Train/deploy or monitor/retrain
+        type: choice
+        options: [train, monitor]
+        default: train
+permissions:
+  contents: read
+concurrency:
+  group: tomato-ml-runtime
+  cancel-in-progress: false
+jobs:
+  pipeline:
+    # Opt-in and main-only; never execute pull-request code on this runner.
+    if: github.ref == 'refs/heads/main' && vars.ENABLE_AUTO_PIPELINE == 'true'
+    runs-on: [self-hosted, project-ml]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: false
+      - name: Check runtime prerequisites
+        run: python -c "import mlflow, sklearn, evidently, uvicorn; print('runtime ready')"
+      - name: Run automatic pipeline
+        env:
+          PIPELINE_MODE: ${{ github.event_name == 'schedule' && 'monitor' || inputs.mode || 'train' }}
+        run: python scripts/09_auto_pipeline.py --mode "$PIPELINE_MODE"
+      - name: Publish execution evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-evidence-${{ github.run_id }}
+          path: |
+            reports/auto_pipeline/run-*/events.json
+            reports/auto_pipeline/run-*/result.json
+            reports/auto_pipeline/run-*/train-*.json
+          if-no-files-found: ignore
