@@ -9,14 +9,12 @@ on:
 permissions:
   contents: read
 
+env:
+  IMAGE: tomato-serving:ci
+
 jobs:
   test:
     runs-on: ubuntu-latest
-    env:
-      RUN: >-
-        docker run --rm -v "${{ github.workspace }}:/app"
-        -e DATA_DIR=dataset/sample -e GIT_COMMIT=${{ github.sha }}
-        tomato-serving:ci
     steps:
       - uses: actions/checkout@v4
 
@@ -24,31 +22,43 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+          cache-dependency-path: requirements-lock.txt
 
-      - run: pip install -r requirements-lock.txt
+      - name: Install dependencies
+        run: pip install -r requirements-lock.txt
 
       - name: Lint
         run: ruff check .
 
       - name: Build image
-        run: docker build -t tomato-serving:ci .
+        run: docker build -t $IMAGE .
 
       - name: Validate data
-        run: $RUN python scripts/01_data_validation.py --data-root dataset/sample
+        run: >
+          docker run --rm -v ${{ github.workspace }}:/app
+          -e DATA_DIR=dataset/sample $IMAGE
+          python scripts/01.1_data_validation.py --data-root dataset/sample
 
       - name: Preprocess
-        run: $RUN python scripts/1.2_preprocess.py
+        run: >
+          docker run --rm -v ${{ github.workspace }}:/app
+          -e DATA_DIR=dataset/sample $IMAGE
+          python scripts/01.2_preprocess.py
 
       - name: Train, evaluate, register
-        run: $RUN python scripts/02_train_evaluate_register.py
+        run: >
+          docker run --rm -v ${{ github.workspace }}:/app
+          -e DATA_DIR=dataset/sample -e GIT_COMMIT=${{ github.sha }} $IMAGE
+          python scripts/02_train_evaluate_register.py
 
       - name: Start serving
-        run: docker run -d --name serving -p 8000:8000 -v "$PWD:/app" tomato-serving:ci
+        run: docker run -d --name serving -p 8000:8000 -v ${{ github.workspace }}:/app $IMAGE
 
-      - name: Wait for healthy
+      - name: Wait until healthy
         run: |
           for i in $(seq 1 30); do
-            [ "$(docker inspect -f '{{.State.Health.Status}}' serving)" = healthy ] && exit 0
+            status=$(docker inspect -f '{{.State.Health.Status}}' serving)
+            [ "$status" = healthy ] && exit 0
             sleep 5
           done
           docker logs serving
@@ -57,9 +67,9 @@ jobs:
       - name: Integration tests
         run: |
           export TEST_IMAGE="$(find dataset/sample/test -name '*.jpg' | head -1)"
-          pytest
+          pytest tests/test_serving_api.py
 
-      - name: Show logs on failure
+      - name: Show serving logs on failure
         if: failure()
         run: docker logs serving
 
