@@ -37,8 +37,8 @@ def decide(summary):
     return {
         "action": "OK",
         "reason": (
-            f"Model performance and data distribution "
-            f"are within acceptable thresholds"
+            "Model performance and data distribution "
+            "are within acceptable thresholds"
         ),
     }
 
