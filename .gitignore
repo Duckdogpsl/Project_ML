@@ -20,3 +20,5 @@ reports/
 main
 
 .pytest_cache/
+.coverage
+scripts/demo_*

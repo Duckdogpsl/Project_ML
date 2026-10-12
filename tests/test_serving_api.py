@@ -3,15 +3,40 @@
 import os
 from pathlib import Path
 
+import pytest
 import requests
 
 BASE_URL = os.getenv("SERVING_URL", "http://localhost:8000")
-TEST_IMAGE = Path(
-    os.getenv(
-        "TEST_IMAGE",
-        r"C:\CP_LAB_MLOPS_Project\Project-ML\dataset\sample\test"
-        r"\Tomato__Tomato_Healthy\TomatoHealthy(114).jpg",
-    )
+
+ROOT = Path(__file__).resolve().parents[1]
+_default_test_image = None
+for candidate in [
+    ROOT / "dataset/sample/test/Tomato__Tomato_Healthy/TomatoHealthy(114).jpg",
+    ROOT / "dataset/tomato/test/Tomato__Tomato_Healthy/TomatoHealthy(114).jpg",
+]:
+    if candidate.exists():
+        _default_test_image = candidate
+        break
+if not _default_test_image:
+    _found = list((ROOT / "dataset").glob("*/*/*/*.[jJ][pP][gG]"))
+    if _found:
+        _default_test_image = _found[0]
+
+_env_image = os.getenv("TEST_IMAGE")
+TEST_IMAGE = Path(_env_image) if _env_image else (_default_test_image or Path("missing_image.jpg"))
+
+
+def _is_server_available():
+    try:
+        res = requests.get(f"{BASE_URL}/health", timeout=2)
+        return res.status_code == 200
+    except Exception:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _is_server_available(),
+    reason=f"Serving server at {BASE_URL} is not running (integration test)",
 )
 
 

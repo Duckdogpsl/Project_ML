@@ -13,15 +13,16 @@ BASE_URL = os.getenv("SERVING_URL", "http://localhost:8000")
 TOTAL_REQUESTS = int(os.getenv("TOTAL_REQUESTS", "50"))
 CONCURRENCY = int(os.getenv("CONCURRENCY", "5"))
 
-TEST_IMAGE = Path(
-    os.getenv(
-        "TEST_IMAGE",
-        r"C:\CP_LAB_MLOPS_Project\Project-ML\dataset\sample\test"
-        r"\Tomato__Tomato_Healthy\TomatoHealthy(114).jpg",
-    )
-)
+def _default_test_image() -> Path:
+    candidates = list((Path(__file__).resolve().parents[1] / "dataset/tomato/test/Tomato__Tomato_Healthy").glob("*.jpg"))
+    if candidates:
+        return candidates[0]
+    return Path(__file__).resolve().parents[1] / "dataset/tomato/test/Tomato__Tomato_Healthy/TomatoHealthy(1005).jpg"
 
-IMAGE_BYTES = TEST_IMAGE.read_bytes()
+_env_img = os.getenv("TEST_IMAGE")
+TEST_IMAGE = Path(_env_img) if _env_img else _default_test_image()
+
+IMAGE_BYTES = TEST_IMAGE.read_bytes() if TEST_IMAGE.exists() else b""
 
 
 def send_prediction(request_id: int) -> dict:

@@ -45,9 +45,9 @@ lazy-loader==0.6
 Mako==1.4.3
 MarkupSafe==3.0.4
 matplotlib==3.11.2
-mlflow==3.16.1
-mlflow-skinny==3.16.1
-mlflow-tracing==3.16.1
+mlflow==3.17.0
+mlflow-skinny==3.17.0
+mlflow-tracing==3.17.0
 multidict==6.9.1
 narwhals==2.26.0
 networkx==3.6.1

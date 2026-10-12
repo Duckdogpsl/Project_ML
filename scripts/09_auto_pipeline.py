@@ -4,7 +4,6 @@ Run with the project's Python environment. Runtime state is ignored under report
 """
 
 import argparse
-import fcntl
 import importlib.util
 import json
 import os
@@ -16,6 +15,11 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -400,10 +404,16 @@ def main():
     args.data_dir = args.data_dir.resolve()
     args.state_dir.mkdir(parents=True, exist_ok=True)
     # Serialize scheduled/manual jobs so two pipelines cannot change champion concurrently.
-    with (args.state_dir / "pipeline.lock").open("a") as lock:
+    with (args.state_dir / "pipeline.lock").open("a+") as lock:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+            if fcntl:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            else:
+                import msvcrt
+
+                lock.seek(0)
+                msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+        except (BlockingIOError, OSError):
             print("Another pipeline is running; skipped", flush=True)
             return 0
         ops = PipelineOps(args)

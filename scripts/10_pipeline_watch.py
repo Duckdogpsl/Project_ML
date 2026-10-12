@@ -4,7 +4,6 @@ Keep this controller running on the deployment Mac. It does not merge GitHub PRs
 """
 
 import argparse
-import fcntl
 import hashlib
 import json
 import os
@@ -12,6 +11,11 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -128,10 +132,16 @@ def main():
     args.data_dir = args.data_dir.resolve()
     args.state_dir = args.state_dir.resolve()
     args.state_dir.mkdir(parents=True, exist_ok=True)
-    with (args.state_dir / "watch.lock").open("a") as lock:
+    with (args.state_dir / "watch.lock").open("a+") as lock:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+            if fcntl:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            else:
+                import msvcrt
+
+                lock.seek(0)
+                msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+        except (BlockingIOError, OSError):
             raise SystemExit("A controller is already running")
         while True:
             try:

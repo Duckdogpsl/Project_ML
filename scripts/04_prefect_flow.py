@@ -58,22 +58,22 @@ def _run_script(script: str, env_overrides: dict[str, str], args: list[str] | No
 
 @task(name="1. data_validation", tags=["data"])
 def validate(env: dict[str, str]) -> str:
-    return _run_script("01_data_validation.py", env)
+    return _run_script("01.1_data_validation.py", env, ["--data-root", env.get("DATA_DIR", "dataset/sample")])
 
 
 @task(name="2. data_preprocessing", tags=["data"], retries=1, retry_delay_seconds=10)
 def preprocess(env: dict[str, str]) -> str:
-    return _run_script("02_data_preprocessing.py", env)
+    return _run_script("01.2_preprocess.py", env)
 
 
 @task(name="3. train_evaluate_register", tags=["model"])
 def train_register(env: dict[str, str]) -> str:
-    return _run_script("03_train_evaluate_register.py", env)
+    return _run_script("02_train_evaluate_register.py", env)
 
 
 @task(name="4. load_and_predict (smoke test)", tags=["model"])
 def smoke_test(env: dict[str, str]) -> str:
-    return _run_script("04_load_and_predict.py", env)
+    return _run_script("05_load_and_predict.py", env)
 
 
 @flow(name="tomato-leaf-mlops-pipeline", log_prints=True)
