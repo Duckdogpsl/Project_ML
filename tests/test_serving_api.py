@@ -103,3 +103,25 @@ def test_metrics_endpoint():
     assert "tomato_serving_predictions_total" in response.text
     assert "tomato_serving_errors_total" in response.text
     assert "tomato_serving_inference_latency_seconds" in response.text
+
+
+def test_predict_out_of_distribution_image():
+    """ทดสอบกรณีส่งภาพนอกโดเมน (OOD) ที่ไม่ใช่ภาพโรคใบมะเขือเทศทั้ง 3 คลาส
+    ระบบต้องไม่ฟันธงว่าเป็นโรคใดโรคหนึ่ง และต้องระบุเป็น Unknown / Out-of-Distribution
+    """
+    ood_image = ROOT / "reports/final_audit/runtime/test_ood/blue_sky.jpg"
+    assert ood_image.exists(), f"ไม่พบภาพทดสอบ OOD: {ood_image}"
+
+    with ood_image.open("rb") as f:
+        response = requests.post(
+            f"{BASE_URL}/predict",
+            files={"file": (ood_image.name, f, "image/jpeg")},
+            timeout=10,
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_out_of_distribution"] is True
+    assert "Unknown" in body["disease_class"]
+    assert body["suggested_action"] == "expert_review"
+    assert body["confidence_score"] < body["confidence_threshold"]

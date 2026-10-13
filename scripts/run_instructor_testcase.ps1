@@ -59,16 +59,23 @@ if ($ImagePath -ne "") {
         exit 1
     }
 } else {
-    Write-Host "[INFO] No -ImagePath or -ImageDir provided. Auto-selecting sample images from dataset/tomato/test..." -ForegroundColor Yellow
-    $sampleClasses = @("Tomato__Tomato_Healthy", "Tomato__Tomato_mosaic_virus", "Tomato__Tomato_YellowLeaf__Curl_Virus")
+    Write-Host "[INFO] No -ImagePath or -ImageDir provided. Auto-selecting sample images from the 3 tomato leaf disease classes:" -ForegroundColor Yellow
+    Write-Host "       1) Healthy Leaf  2) Mosaic Virus Leaf  3) Yellow Leaf Curl Virus Leaf  4) Corrupt File (Error Handling)" -ForegroundColor Yellow
+    $sampleClasses = @(
+        "Tomato__Tomato_Healthy",
+        "Tomato__Tomato_Mosaic_virus",
+        "Tomato__Tomato_Yellow_Leaf_Curl_Virus"
+    )
     foreach ($cls in $sampleClasses) {
         $matches = Get-ChildItem -Path "dataset/tomato/test/$cls/*.jpg" -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($matches) {
             $filesToTest += $matches
         }
     }
-    if ($filesToTest.Count -eq 0) {
-        $filesToTest += Get-ChildItem -Path "dataset" -Recurse -Filter "*.jpg" -ErrorAction SilentlyContinue | Select-Object -First 3
+    # Add Corrupt leaf test case
+    $corruptPath = "reports/final_audit/runtime/corrupt_leaf.jpg"
+    if (Test-Path $corruptPath) {
+        $filesToTest += (Get-Item $corruptPath)
     }
 }
 
@@ -89,7 +96,9 @@ foreach ($file in $filesToTest) {
     
     $statusCode = 0
     $predictedClass = "N/A"
+    $domainStatus = "N/A"
     $confidence = 0.0
+    $confDisplay = "N/A"
     $errorDetail = ""
     
     try {
@@ -106,30 +115,44 @@ foreach ($file in $filesToTest) {
             
             if ($statusCode -eq 200) {
                 $json = $bodyStr | ConvertFrom-Json
+                $isOOD = [bool]$json.is_out_of_distribution
                 $predictedClass = if ($json.disease_class) { $json.disease_class } elseif ($json.predicted_class) { $json.predicted_class } else { "Unknown" }
                 $confRaw = if ($null -ne $json.confidence_score) { $json.confidence_score } elseif ($null -ne $json.confidence) { $json.confidence } else { 0.0 }
                 $confidence = [math]::Round([double]$confRaw, 4)
+                
+                if ($isOOD) {
+                    $domainStatus = "[NOT IN 3 CLASSES]"
+                    $predictedClass = "Unknown (Not in any class)"
+                    $confDisplay = "{0:P1}" -f $confidence
+                } else {
+                    $domainStatus = "[MATCHED: 3 CLASSES]"
+                    $confDisplay = "{0:P1}" -f $confidence
+                }
             } else {
                 $predictedClass = "[HTTP $statusCode ERROR]"
+                $domainStatus = "[INVALID / ERROR]"
                 $errorDetail = $bodyStr
             }
         } else {
             $statusCode = 500
             $predictedClass = "[PARSE ERROR]"
+            $domainStatus = "[ERROR]"
         }
     } catch {
         $sw.Stop()
         $latencyMs = [math]::Round($sw.Elapsed.TotalMilliseconds, 2)
         $statusCode = 500
         $predictedClass = "[EXCEPTION]"
+        $domainStatus = "[ERROR]"
         $errorDetail = $_.Exception.Message
     }
     
     $results += [PSCustomObject]@{
         "File"            = $fileName
         "Status"          = $statusCode
+        "Domain Check"    = $domainStatus
         "Prediction"      = $predictedClass
-        "Confidence"      = if ($confidence -gt 0) { "{0:P2}" -f $confidence } else { "N/A" }
+        "Confidence"      = $confDisplay
         "Latency(ms)"     = $latencyMs
         "Model Version"   = "$modelVersion"
     }

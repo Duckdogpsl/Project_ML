@@ -22,3 +22,4 @@ main
 .pytest_cache/
 .coverage
 scripts/demo_*
+scripts/class_centroids.npz
